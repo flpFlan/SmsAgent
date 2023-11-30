@@ -13,13 +13,17 @@ import java.util.logging.Logger
 import com.flpflan.smsagent.ui.Config
 import java.util.logging.SimpleFormatter
 
+private val logger = Logger.getLogger("smsAgent")
+
 
 class MainActivity : AppCompatActivity() {
+    private var _hook: SmsHook = SmsHook()
+    private var _worker: OneTimeWorkRequest = OneTimeWorkRequest.from(SmsAgent::class.java)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         askForPermission()
 
-        val logger = Logger.getLogger("smsAgent")
         logger.level = Level.INFO
         val handler =
             FileHandler("${getExternalFilesDir("logs")}/smsAgent%g.log", 1024 * 1024 * 10, 1, false)
@@ -29,16 +33,18 @@ class MainActivity : AppCompatActivity() {
         logger.info("SmsAgent initializing")
         WorkManager
             .getInstance(this)
-            .enqueue(OneTimeWorkRequest.from(SmsAgent::class.java))
-
-        val hook = SmsHook()
-        registerReceiver(
-            hook, IntentFilter("android.provider.Telephony.SMS_RECEIVED")
-        )
+            .enqueue(_worker)
+        registerReceiver(_hook, IntentFilter("android.provider.Telephony.SMS_RECEIVED"))
 
         setContent {
             Config(context = this)
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(_hook)
+        WorkManager.getInstance(this).cancelAllWork()
     }
 
     private fun askForPermission() {
