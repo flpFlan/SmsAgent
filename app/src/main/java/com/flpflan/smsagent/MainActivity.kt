@@ -11,19 +11,22 @@ import java.util.logging.FileHandler
 import java.util.logging.Level
 import java.util.logging.Logger
 import com.flpflan.smsagent.ui.Config
+import java.util.logging.SimpleFormatter
 
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         askForPermission()
+
         val logger = Logger.getLogger("smsAgent")
         logger.level = Level.INFO
-        logger.addHandler(
+        val handler =
             FileHandler("${getExternalFilesDir("logs")}/smsAgent%g.log", 1024 * 1024 * 10, 1, false)
-        )
+        handler.formatter = SimpleFormatter()
+        logger.addHandler(handler)
 
-        logger.info("SmsAgent start")
+        logger.info("SmsAgent initializing")
         WorkManager
             .getInstance(this)
             .enqueue(OneTimeWorkRequest.from(SmsAgent::class.java))
