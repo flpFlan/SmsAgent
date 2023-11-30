@@ -1,6 +1,5 @@
 package com.flpflan.smsagent
 
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.compose.setContent
@@ -34,7 +33,7 @@ class MainActivity : AppCompatActivity() {
         WorkManager
             .getInstance(this)
             .enqueue(_worker)
-        registerReceiver(_hook, IntentFilter("android.provider.Telephony.SMS_RECEIVED"))
+        _hook.doHook(this)
 
         setContent {
             Config(context = this)
@@ -43,7 +42,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        unregisterReceiver(_hook)
+        _hook.undoHook(this)
         WorkManager.getInstance(this).cancelAllWork()
     }
 

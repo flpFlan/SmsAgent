@@ -2,7 +2,9 @@ package com.flpflan.smsagent
 
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
+import android.content.IntentFilter
 import android.provider.Telephony.Sms
 import androidx.work.Worker
 import androidx.work.WorkerParameters
@@ -28,6 +30,31 @@ data class SMS(
     val sender: String,
     val text: String
 )
+
+class SmsHook : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        for (msg in Sms.Intents.getMessagesFromIntent(intent)) {
+            val sender = msg.originatingAddress
+            val millis = msg.timestampMillis
+            val status = msg.status
+            val text = msg.displayMessageBody
+
+            val time =
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(millis), ZoneId.systemDefault())
+            buffer.put(SMS(status.toString(), time, sender.toString(), text))
+            logger.info("received sms status:$status time:$time sender:$sender text:$text")
+        }
+    }
+
+    fun doHook(wrapper: ContextWrapper) {
+        val filter = IntentFilter("android.provider.Telephony.SMS_RECEIVED")
+        wrapper.registerReceiver(this, filter)
+    }
+
+    fun undoHook(wrapper: ContextWrapper) {
+        wrapper.unregisterReceiver(this)
+    }
+}
 
 data class CallbackPayload(
     val time: String, val sender: String, val receiver: String, val text: String
@@ -56,23 +83,6 @@ class SmsAgent(context: Context, workerParams: WorkerParameters) : Worker(contex
         logger.info("posting to ${Configuration.Callback}, content:${payload.serialize()}")
         _req.post(Configuration.Callback, payload.serialize())
     }
-}
-
-class SmsHook : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        for (msg in Sms.Intents.getMessagesFromIntent(intent)) {
-            val sender = msg.originatingAddress
-            val millis = msg.timestampMillis
-            val status = msg.status
-            val text = msg.displayMessageBody
-
-            val time =
-                LocalDateTime.ofInstant(Instant.ofEpochMilli(millis), ZoneId.systemDefault())
-            buffer.put(SMS(status.toString(), time, sender.toString(), text))
-            logger.info("received sms status:$status time:$time sender:$sender text:$text")
-        }
-    }
-
 }
 
 private class Request(context: Context) {
