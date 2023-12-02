@@ -16,9 +16,6 @@ private val logger = Logger.getLogger("smsAgent")
 
 
 class MainActivity : AppCompatActivity() {
-    private var _hook: SmsHook = SmsHook()
-    private var _worker: OneTimeWorkRequest = OneTimeWorkRequest.from(SmsAgent::class.java)
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         askForPermission()
@@ -32,8 +29,8 @@ class MainActivity : AppCompatActivity() {
         logger.info("SmsAgent initializing")
         WorkManager
             .getInstance(this)
-            .enqueue(_worker)
-        _hook.doHook(this)
+            .enqueue(OneTimeWorkRequest.from(SmsAgent::class.java))
+        SmsHook.doHook(this)
 
         setContent {
             Config(context = this)
@@ -42,17 +39,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        _hook.undoHook(this)
+        SmsHook.undoHook(this)
         WorkManager.getInstance(this).cancelAllWork()
     }
 
     private fun askForPermission() {
         if (this.checkSelfPermission(android.Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED ||
+            this.checkSelfPermission(android.Manifest.permission.BROADCAST_SMS) != PackageManager.PERMISSION_GRANTED ||
             this.checkSelfPermission(android.Manifest.permission.INTERNET) != PackageManager.PERMISSION_GRANTED
         ) {
             this.requestPermissions(
                 arrayOf(
                     android.Manifest.permission.RECEIVE_SMS,
+                    android.Manifest.permission.BROADCAST_SMS,
                     android.Manifest.permission.INTERNET
                 ), PackageManager.PERMISSION_GRANTED
             )

@@ -8,13 +8,7 @@ import android.content.IntentFilter
 import android.provider.Telephony.Sms
 import androidx.work.Worker
 import androidx.work.WorkerParameters
-import com.android.volley.Request
-import com.android.volley.RequestQueue
-import com.android.volley.toolbox.JsonObjectRequest
-import com.android.volley.toolbox.StringRequest
-import com.android.volley.toolbox.Volley
-import org.json.JSONObject
-import java.io.Serializable
+import com.google.gson.Gson
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -25,48 +19,50 @@ private val logger = Logger.getLogger("smsAgent")
 private val buffer = ArrayBlockingQueue<SMS>(64)
 
 data class SMS(
-    val status: String,
+    val iccIndex: Int,
     val time: LocalDateTime,
     val sender: String,
     val text: String
 )
 
-class SmsHook : BroadcastReceiver() {
+object SmsHook : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         for (msg in Sms.Intents.getMessagesFromIntent(intent)) {
-            val sender = msg.originatingAddress
+            val iccIndex = msg.indexOnIcc
+            val sender = msg.displayOriginatingAddress
             val millis = msg.timestampMillis
-            val status = msg.status
             val text = msg.displayMessageBody
 
             val time =
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(millis), ZoneId.systemDefault())
-            buffer.put(SMS(status.toString(), time, sender.toString(), text))
-            logger.info("received sms status:$status time:$time sender:$sender text:$text")
+            buffer.put(SMS(iccIndex, time, sender.toString(), text))
+            logger.info("received sms, iccIndex:$iccIndex time:$time sender:$sender text:$text")
         }
     }
 
     fun doHook(wrapper: ContextWrapper) {
+        logger.info("Register sms hook")
         val filter = IntentFilter("android.provider.Telephony.SMS_RECEIVED")
         wrapper.registerReceiver(this, filter)
     }
 
     fun undoHook(wrapper: ContextWrapper) {
+        logger.info("Unregister sms hook")
         wrapper.unregisterReceiver(this)
     }
 }
 
 data class CallbackPayload(
-    val time: String, val sender: String, val receiver: String, val text: String
-) : Serializable {
-    fun serialize(): String {
-        return """{"sender":"$sender","text":"$text"}"""
-    }
-}
+    val time: String,
+    val sender: String,
+    val receiver: String,
+    val text: String
+)
 
 
 class SmsAgent(context: Context, workerParams: WorkerParameters) : Worker(context, workerParams) {
     private val _req = Request(context.applicationContext)
+    private val _gson = Gson()
 
     override fun doWork(): Result {
         logger.info("SmsAgent start loop")
@@ -78,46 +74,35 @@ class SmsAgent(context: Context, workerParams: WorkerParameters) : Worker(contex
     }
 
     private fun handleSMS(sms: SMS) {
+        if (!checkSMSValidity(sms)) return
         val payload =
             CallbackPayload(sms.time.toString(), sms.sender, Configuration.Receiver, sms.text)
-        logger.info("posting to ${Configuration.Callback}, content:${payload.serialize()}")
-        _req.post(Configuration.Callback, payload.serialize())
-    }
-}
-
-private class Request(context: Context) {
-    private val _queue: RequestQueue
-
-    init {
-        this._queue = Volley.newRequestQueue(context)
+        val serialized = _gson.toJson(payload)
+        logger.info("posting to ${Configuration.Callback}, content:${serialized}")
+        _req.post(Configuration.Callback, serialized)
+        deleteSMS(sms)
     }
 
-    fun post(url: String, content: String) {
-        val req = object : JsonObjectRequest(
-            Method.POST,
-            url,
-            JSONObject(content),
-            { resp ->
-                logger.info("Server response: $resp")
-            },
-            { error ->
-                logger.warning("Post error: $error message:${error.message}")
-            }) {
-            override fun getHeaders(): MutableMap<String, String> {
-                val headers = HashMap<String, String>()
-                headers["Content-Type"] = "application/json"
-                return headers
-            }
-        }
-        _queue.add(req)
+    private fun checkSMSValidity(sms: SMS): Boolean {
+        return sms.text.toULongOrNull(0x10) != null
     }
 
-    fun get(url: String) {
-        val req = StringRequest(Request.Method.GET, url,
-            { resp ->
-                logger.info(resp)
-            },
-            { err -> logger.warning(err.toString()) })
-        _queue.add(req)
+    private fun deleteSMS(sms: SMS) {
+        // NOTE: Something goes wrong with deleting sms on Android...
+
+//        val resolver = applicationContext.contentResolver
+//        val date = sms.time.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+//        val filter = "date=$date and address='${sms.sender}' and body=${sms.text}"
+////          "index_on_icc='${sms.iccIndex}'"
+//
+//        Thread.sleep(500) // allow SmsProvider to store this sms
+//        val deletedCount = resolver.delete(Sms.Inbox.CONTENT_URI, filter, null)
+//        logger.info(
+//            "delete $deletedCount sms, " +
+////               "iccIndex:${sms.iccIndex}, " +
+//                    "time:${sms.time}, " +
+//                    "sender:${sms.sender}, " +
+//                    "text:${sms.text}"
+//        )
     }
 }
